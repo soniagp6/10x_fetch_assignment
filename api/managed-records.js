@@ -1,47 +1,86 @@
-import URI from "urijs";
+import URI from "urijs"
 
 // /records endpoint
 window.path = "http://localhost:3000/records";
 
-function getFullURI(options) {
 
-  // todo - test page is 0, test page is 200
-  const ITEMS_PER_PAGE = 10;
-  let offset = Math.max((options["page"] - 1) * ITEMS_PER_PAGE , 0);
+function getFullURI(colors, page, itemsPerPage) {
+
+  let offset = Math.max(page - 1, 0) * itemsPerPage;
 
   let fullURI = URI(window.path)
-    .addSearch("limit", ITEMS_PER_PAGE)
-    .addSearch("offset", offset);
+    // fetching itemsPerPage + 1 bc we want to know if there are results beyond these 10 requested
+    .addSearch("limit", itemsPerPage + 1)
+    .addSearch("offset", offset)
 
-  // todo test random color strings
-  const PERMITTED_COLORS = ["red", "brown", "blue", "yellow", "green"];
-  for (color of options["colors"]) {
-    PERMITTED_COLORS.includes(color) ? 
-      fullURI = URI(fullURI).addSearch("color[]", color) : 
-      Log("you requested a color that isn't in the database!");
-  };
-
-  console.log("new test request",fullURI);
+  if (colors) {
+    for (let color of colors) {
+      fullURI = URI(fullURI).addSearch("color[]", color)
+    }
+  }
+  //console.log('full uri: '+ fullURI)
+  
   return fullURI;
 }
 
 
+function isPrimaryColor(color) {
+  const PRIMARY_COLORS = ["red", "blue", "yellow"]
+  return PRIMARY_COLORS.includes(color)
+}
+
+
 // Your retrieve function plus any additional functions go here ...
-function retrieve(options = {page: 1, colors: []}) {
+async function retrieve({colors = [], page = 1} = {}) {
 
-  let requestURI = getFullURI(options);
-  console.log('request uri', requestURI);
+  const ITEMS_PER_PAGE = 10
+  let newRequest = getFullURI(colors, page, ITEMS_PER_PAGE)
+  // console.log(' page', page)
+  // console.log('colors: ', colors)
 
-  fetch(requestURI)
+  return fetch(newRequest)
     .then((response) => {
+      // console.log('response: ', response)
       if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+        console.error(`HTTP error! Status: ${response.status}`)
       }
-      return response.json();
+      return response.json()
     })
     .then((responseJSON) => {
-      console.log('response Json', responseJSON);
-    });
+      //console.log("tenth response", responseJSON[10] +" length "+ responseJSON.length);
+      let hasNextPage = responseJSON.length > 10
+      //console.log('has next page: ' + hasNextPage);
+      // now we can trim the results to the length we want 
+      responseJSON.length = Math.min(ITEMS_PER_PAGE, responseJSON.length)
+
+
+      let recordsObject = {
+        previousPage: page - 1 ? page - 1 : null,
+        nextPage: hasNextPage ? (page + 1) : null,
+        ids: responseJSON.map((item) => item.id),
+        open: responseJSON
+          .filter((item) => item.disposition == "open")
+          .map((item) =>
+            Object.assign(item, { isPrimary: isPrimaryColor(item.color) })
+          ),
+        closedPrimaryCount: responseJSON.filter(
+          (item) => item.disposition == "closed" && isPrimaryColor(item.color)
+        ).length,
+      }
+
+      //console.log(JSON.stringify(recordsObject, null, 4));
+
+      return recordsObject
+    })
+
+    // try {
+    //   const response = await fetch(newRequest) 
+    //   return response;
+    // }
+    // catch (error) {
+    //   console.error("new errrorr")
+    // }
+
 }
 
 export default retrieve;
